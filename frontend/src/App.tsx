@@ -8,6 +8,7 @@ import { BerthTable } from "@/components/availability/berth-table.tsx";
 import { CoachList } from "@/components/availability/coach-list.tsx";
 import { CrossComparison } from "@/components/comparison/cross-comparison.tsx";
 import { ErrorState } from "@/components/feedback/error-state.tsx";
+import { RequestLog } from "@/components/feedback/request-log.tsx";
 import { RouteTimeline } from "@/components/route/route-timeline.tsx";
 import {
   SearchScreen,
@@ -383,6 +384,8 @@ export function App() {
                   : "Open a chart with a boarding station to enable availability."}
               </p>
             ) : null}
+
+            <RequestLog />
           </Section>
 
           {resultsReady ? (

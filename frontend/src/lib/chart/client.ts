@@ -28,6 +28,81 @@ export class IrctcApiError extends Error {
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const jsonHeaders = { "Content-Type": "application/json", Accept: "application/json" };
 
+/** In-page request log so passengers can see (and paste) what the app asked
+ *  IRCTC, without opening DevTools. Kept to the last 50 entries. */
+export type RequestStatus = "pending" | "ok" | "error";
+
+export interface RequestLogEntry {
+  id: number;
+  label: string;
+  status: RequestStatus;
+  ms: number | null;
+  detail: string | null;
+}
+
+let logId = 0;
+let logEntries: RequestLogEntry[] = [];
+const logListeners = new Set<() => void>();
+
+function emitLog(): void {
+  for (const fn of logListeners) {
+    try {
+      fn();
+    } catch {
+      // Listener errors must never break networking.
+    }
+  }
+}
+
+export function subscribeRequestLog(fn: () => void): () => void {
+  logListeners.add(fn);
+  return () => {
+    logListeners.delete(fn);
+  };
+}
+
+export function getRequestLog(): readonly RequestLogEntry[] {
+  return logEntries;
+}
+
+export function logStart(label: string): number {
+  const id = ++logId;
+  logEntries = [
+    ...logEntries.slice(-49),
+    { id, label, status: "pending", ms: null, detail: null },
+  ];
+  emitLog();
+  return id;
+}
+
+export function logFinish(id: number, ok: boolean, ms: number, detail?: string): void {
+  logEntries = logEntries.map((entry) =>
+    entry.id === id
+      ? { ...entry, status: ok ? "ok" : "error", ms, detail: detail ?? null }
+      : entry,
+  );
+  emitLog();
+}
+
+/** Wraps one IRCTC call with timing + outcome for the in-page log. */
+export async function loggedRequest<T>(label: string, fn: () => Promise<T>): Promise<T> {
+  const id = logStart(label);
+  const started = Date.now();
+  try {
+    const value = await fn();
+    logFinish(id, true, Date.now() - started);
+    return value;
+  } catch (error) {
+    logFinish(
+      id,
+      false,
+      Date.now() - started,
+      error instanceof Error ? error.message.slice(0, 160) : String(error).slice(0, 160),
+    );
+    throw error;
+  }
+}
+
 const RETRYABLE_STATUS = new Set([408, 425, 500, 502, 503, 504]);
 
 function backoffMs(attempt: number): number {

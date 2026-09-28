@@ -4,6 +4,9 @@ import {
   fetchSchedule,
   fetchTrainComposition,
   fetchVacantBerth,
+  logFinish,
+  logStart,
+  loggedRequest,
   normalizeCoaches,
   normalizeStations,
 } from "./client.ts";
@@ -36,11 +39,9 @@ export async function getJourney(query: JourneyQuery, politeMs = 400, signal?: A
   if (cachedJourney) return cachedJourney;
 
   const schedCacheKey = `sched:${query.trainNo}`;
-  const comp = await fetchTrainComposition(
-    query.trainNo,
-    query.journeyDate,
-    query.boardingStation,
-    signal,
+  const comp = await loggedRequest(
+    `trainComposition ${query.trainNo} ${query.journeyDate} ${query.boardingStation}`,
+    () => fetchTrainComposition(query.trainNo, query.journeyDate, query.boardingStation, signal),
   );
   serverError(comp.error, "trainComposition");
 
@@ -48,7 +49,9 @@ export async function getJourney(query: JourneyQuery, politeMs = 400, signal?: A
 
   let sched = cacheGet<Awaited<ReturnType<typeof fetchSchedule>>>(schedCacheKey, TTL.schedule);
   if (!sched) {
-    sched = await fetchSchedule(query.trainNo, signal);
+    sched = await loggedRequest(`schedule ${query.trainNo}`, () =>
+      fetchSchedule(query.trainNo, signal),
+    );
     cacheSet(schedCacheKey, sched);
   }
   if (sched.errorMessage) {
@@ -170,19 +173,25 @@ export async function getCoachComposition(
   // exactly what the polite delay exists to prevent.
   const coachCacheKey = `coach:${journey.trainNo}|${journey.journeyDate}|${journey.boardingStation}|${cls}|${coach}`;
   const cachedCoach = cacheGet<CoachComposition>(coachCacheKey, TTL.coach);
-  if (cachedCoach) return cachedCoach;
+  if (cachedCoach) {
+    const id = logStart(`coach ${coach} (${cls})`);
+    logFinish(id, true, 0, "cached");
+    return cachedCoach;
+  }
   if (politeMs > 0) await sleep(politeMs);
   // Coach fan-out is the slowest path (one call per coach), so fail fast here:
   // 1 retry and a 12s cap instead of the defaults. Partial results beat a spinner.
-  const raw = await fetchCoachComposition({
-    trainNo: journey.trainNo,
-    boardingStation: journey.boardingStation ?? "",
-    remoteStation,
-    trainSourceStation,
-    jDate,
-    coach,
-    cls,
-  }, signal, { retries: 1, timeoutMs: 12_000 });
+  const raw = await loggedRequest(`coach ${coach} (${cls})`, () =>
+    fetchCoachComposition({
+      trainNo: journey.trainNo,
+      boardingStation: journey.boardingStation ?? "",
+      remoteStation,
+      trainSourceStation,
+      jDate,
+      coach,
+      cls,
+    }, signal, { retries: 1, timeoutMs: 12_000 }),
+  );
   serverError(raw.error, "coachComposition");
   if (!Array.isArray(raw.bdd)) {
     throw new IrctcApiError("coachComposition response has no bdd", "malformed");
