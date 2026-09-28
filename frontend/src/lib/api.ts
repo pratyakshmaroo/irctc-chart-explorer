@@ -1,5 +1,5 @@
 import type { PageSize } from "@/lib/types.ts";
-import { IrctcApiError, fetchSchedule, normalizeStations } from "@/lib/chart/client.ts";
+import { IrctcApiError, fetchSchedule, logFinish, logStart, normalizeStations } from "@/lib/chart/client.ts";
 import {
   chartPrepared,
   classesOf,
@@ -287,8 +287,10 @@ export async function getAvailability(
   input: { key: string; from: string; to: string; classCode: string; coach?: string | null; page: number; size: PageSize; onProgress?: (done: number, total: number) => void },
   signal?: AbortSignal,
 ): Promise<AvailabilityResult> {
+  checkAborted(signal);
+  const t0 = Date.now();
+  const summaryId = logStart(`availability ${input.classCode} ${input.from}→${input.to}`);
   try {
-    checkAborted(signal);
     const journey = requireJourney(input.key);
     if (!input.classCode) throw new ApiError("usage", "Select a class first.");
     if (!Number.isInteger(input.page) || input.page < 1) {
@@ -310,14 +312,21 @@ export async function getAvailability(
       ? result.coaches.filter((c) => c.coachKey === input.coach)
       : result.coaches;
     const available = selected.flatMap((c) => c.result);
+    const totalBerths = selected.reduce((sum, c) => sum + c.totalBerths, 0);
     const p = paginate(available, input.page, input.size);
+    logFinish(
+      summaryId,
+      true,
+      Date.now() - t0,
+      `${available.length} of ${totalBerths} berths${failed.length > 0 ? `; skipped ${failed.join(", ")}` : ""}`,
+    );
     return {
       ok: true,
       classCode: input.classCode,
       fromStation: input.from,
       toStation: input.to,
       availableCount: available.length,
-      totalBerths: selected.reduce((sum, c) => sum + c.totalBerths, 0),
+      totalBerths,
       coaches: result.coaches
         .filter((c) => c.availableCount > 0)
         .map((c) => ({
@@ -338,16 +347,26 @@ export async function getAvailability(
       warnings: failed,
     } as AvailabilityResult;
   } catch (error) {
-    throw toApiError(error);
-  }
+      if (!(error instanceof Error && error.name === "AbortError")) {
+        logFinish(
+          summaryId,
+          false,
+          Date.now() - t0,
+          error instanceof Error ? error.message.slice(0, 160) : String(error).slice(0, 160),
+        );
+      }
+      throw toApiError(error);
+    }
 }
 
 export async function getCross(
   input: { key: string; dest: string; classCode: string; onProgress?: (done: number, total: number) => void },
   signal?: AbortSignal,
 ): Promise<CrossResult> {
+  checkAborted(signal);
+  const t0 = Date.now();
+  const summaryId = logStart(`cross ${input.classCode} →${input.dest}`);
   try {
-    checkAborted(signal);
     const journey = requireJourney(input.key);
     if (!input.classCode) throw new ApiError("usage", "Select a class first.");
     const destIdx = journey.stations.findIndex((s) => s.code === input.dest);
@@ -370,6 +389,13 @@ export async function getCross(
       boardingStations: boardings,
       compositions: loaded,
     });
+    const best = results.reduce((m, r) => Math.max(m, r.availableCount), 0);
+    logFinish(
+      summaryId,
+      true,
+      Date.now() - t0,
+      `${boardings.length} boardings compared, best ${best}${failed.length > 0 ? `; skipped ${failed.join(", ")}` : ""}`,
+    );
     return {
       ok: true,
       destination: input.dest,
@@ -383,6 +409,14 @@ export async function getCross(
       warnings: failed,
     } as CrossResult;
   } catch (error) {
+    if (!(error instanceof Error && error.name === "AbortError")) {
+      logFinish(
+        summaryId,
+        false,
+        Date.now() - t0,
+        error instanceof Error ? error.message.slice(0, 160) : String(error).slice(0, 160),
+      );
+    }
     throw toApiError(error);
   }
 }

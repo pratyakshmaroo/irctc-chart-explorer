@@ -101,10 +101,12 @@ export function useCross({
       active = false;
       controller.abort();
     };
-    // `onSessionExpired` is intentionally omitted: it only calls setters, so the
-    // captured copy is always equivalent, and listing it would re-fire the query
-    // on every render.
-  }, [sessionKey, destination, classCode, attempt, onSessionExpired]);
+    // `onSessionExpired` is intentionally omitted: it only calls setters and
+    // stable reset callbacks, so the captured copy is always equivalent, and
+    // listing it would re-fire the query (and abort the in-flight one) on
+    // every parent render — a permanent loading spinner.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionKey, destination, classCode, attempt]);
 
   return { destination, setDestination, result, loading, progress, error, ready, reset, retry };
 }
