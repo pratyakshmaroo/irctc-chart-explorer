@@ -34,16 +34,28 @@ export interface CrossBoardingQuery {
 export async function loadClassCompositions(
   journey: Journey,
   classCode: string,
-  politeMs = 250,
+  politeMs = 150,
   signal?: AbortSignal,
+  onProgress?: (done: number, total: number) => void,
 ): Promise<CoachComposition[]> {
   const coaches = journey.coaches.filter((c) => c.classCode === classCode);
-  const compositions: CoachComposition[] = [];
-  for (const coach of coaches) {
-    if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
-    compositions.push(await getCoachComposition(journey, coach.name, classCode, politeMs, signal));
+  const out: CoachComposition[] = new Array(coaches.length);
+  let next = 0;
+  let done = 0;
+  const workers = Math.min(4, coaches.length);
+  async function worker(): Promise<void> {
+    while (true) {
+      const i = next++;
+      if (i >= coaches.length) return;
+      if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
+      const coach = coaches[i]!;
+      out[i] = await getCoachComposition(journey, coach.name, classCode, politeMs, signal);
+      done++;
+      onProgress?.(done, coaches.length);
+    }
   }
-  return compositions;
+  await Promise.all(Array.from({ length: Math.max(workers, 1) }, () => worker()));
+  return out;
 }
 
 export async function getAvailableBerths(query: AvailableBerthQuery): Promise<ClassAvailability> {

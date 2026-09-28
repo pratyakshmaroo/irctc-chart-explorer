@@ -72,7 +72,7 @@ async function compositionsFor(
   const cacheKey = `${key}|${cls}`;
   let pending = compositions.get(cacheKey);
   if (!pending) {
-    pending = loadClassCompositions(journey, cls, 250, signal).catch((error) => {
+    pending = loadClassCompositions(journey, cls, 150, signal).catch((error) => {
       compositions.delete(cacheKey);
       throw error;
     });

@@ -44,7 +44,7 @@ interface RawHttpOptions {
 async function requestText(
   url: string,
   options: RawHttpOptions,
-  retries = 4,
+  retries = 2,
 ): Promise<string> {
   let lastError: Error | null = null;
   for (let attempt = 0; attempt <= retries; attempt++) {
@@ -56,7 +56,7 @@ async function requestText(
         headers: options.headers,
         body: options.body,
         redirect: "follow",
-        signal: options.signal ?? AbortSignal.timeout(25_000),
+        signal: options.signal ?? AbortSignal.timeout(15_000),
       });
       if (res.status === 401 || res.status === 403) {
         throw new IrctcApiError(
@@ -93,7 +93,7 @@ async function requestText(
   throw lastError ?? new IrctcApiError("request failed", "network");
 }
 
-async function requestJson<T>(url: string, options: RawHttpOptions = {}, retries = 4): Promise<T> {
+async function requestJson<T>(url: string, options: RawHttpOptions = {}, retries = 2): Promise<T> {
   const text = await requestText(url, options, retries);
   try {
     return JSON.parse(text) as T;
