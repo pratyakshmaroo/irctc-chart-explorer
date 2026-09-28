@@ -12,6 +12,7 @@ interface CrossComparisonProps {
   onDestinationChange: (value: string) => void;
   boardings?: readonly BoardingComparison[];
   loading?: boolean;
+  loadingLabel?: string | null;
   disabled?: boolean;
   error?: string | null;
   onRetry?: () => void;
@@ -164,6 +165,7 @@ export function CrossComparison({
   onDestinationChange,
   boardings = [],
   loading,
+  loadingLabel,
   disabled,
   error = null,
   onRetry,
@@ -185,7 +187,7 @@ export function CrossComparison({
       {error ? (
         <ErrorState title="Comparison unavailable" message={error} onRetry={onRetry} className="py-8" />
       ) : loading ? (
-        <Loading label="Comparing earlier boarding stations…" />
+        <Loading label={loadingLabel ?? "Comparing earlier boarding stations…"} />
       ) : ranked.length === 0 ? (
         <ComparisonEmpty destination={destination} />
       ) : (

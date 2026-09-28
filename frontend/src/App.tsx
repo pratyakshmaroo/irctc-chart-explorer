@@ -261,6 +261,17 @@ export function App() {
   // two adjacent stats silently describe different populations.
   const berthHint = coach && result ? `in coach ${coach.split(":")[1] ?? coach}` : undefined;
   const resultsReady = availabilityReady && !availability.error;
+  const coachProgress = availability.progress;
+  const coachProgressLabel =
+    availability.loading && coachProgress && coachProgress.total > 0
+      ? `Loading coaches ${Math.min(coachProgress.done + 1, coachProgress.total)} of ${coachProgress.total}…`
+      : null;
+  const crossProgress = cross.progress;
+  const crossProgressLabel =
+    cross.loading && crossProgress && crossProgress.total > 0
+      ? `Loading coaches ${Math.min(crossProgress.done + 1, crossProgress.total)} of ${crossProgress.total}…`
+      : null;
+  const skippedCoaches = result?.warnings ?? [];
 
   /** "—" while the section is not queryable or has failed, "…" while in flight. */
   function countStat(value: string | number | null | undefined): string | number {
@@ -385,11 +396,19 @@ export function App() {
                 <CoachList
                   coaches={coachSummaries}
                   loading={availability.loading}
+                  progressLabel={coachProgressLabel}
                   classCode={segment?.cls}
                   totalAvailable={result?.availableCount}
                   selectedCoachKey={coach}
                   onCoachChange={handleCoachChange}
                 />
+                {skippedCoaches.length > 0 ? (
+                  <p className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2.5 text-xs leading-relaxed text-amber-700 dark:text-amber-300">
+                    Skipped {skippedCoaches.length} coach{skippedCoaches.length === 1 ? "" : "es"} that
+                    IRCTC was too slow to return ({skippedCoaches.join(", ")}). Counts cover the
+                    loaded coaches only — retry to include them.
+                  </p>
+                ) : null}
               </Section>
 
               <Section
@@ -429,6 +448,7 @@ export function App() {
                 onDestinationChange={cross.setDestination}
                 boardings={boardings}
                 loading={cross.loading}
+                loadingLabel={crossProgressLabel}
                 disabled={session === null || !crossClass}
                 error={cross.error ? describeError(cross.error) : null}
                 onRetry={cross.retry}

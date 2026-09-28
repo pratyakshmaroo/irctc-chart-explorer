@@ -41,11 +41,20 @@ interface RawHttpOptions {
   signal?: AbortSignal;
 }
 
+/** Per-call resilience tuning. Coach fan-out uses fast values so one slow
+ *  coach cannot hold the whole page hostage. */
+export interface HttpTuning {
+  retries?: number;
+  timeoutMs?: number;
+}
+
 async function requestText(
   url: string,
   options: RawHttpOptions,
-  retries = 2,
+  tuning: HttpTuning = {},
 ): Promise<string> {
+  const retries = tuning.retries ?? 2;
+  const timeoutMs = tuning.timeoutMs ?? 15_000;
   let lastError: Error | null = null;
   for (let attempt = 0; attempt <= retries; attempt++) {
     if (options.signal?.aborted) throw new DOMException("Aborted", "AbortError");
@@ -56,7 +65,7 @@ async function requestText(
         headers: options.headers,
         body: options.body,
         redirect: "follow",
-        signal: options.signal ?? AbortSignal.timeout(15_000),
+        signal: options.signal ?? AbortSignal.timeout(timeoutMs),
       });
       if (res.status === 401 || res.status === 403) {
         throw new IrctcApiError(
@@ -93,8 +102,8 @@ async function requestText(
   throw lastError ?? new IrctcApiError("request failed", "network");
 }
 
-async function requestJson<T>(url: string, options: RawHttpOptions = {}, retries = 2): Promise<T> {
-  const text = await requestText(url, options, retries);
+async function requestJson<T>(url: string, options: RawHttpOptions = {}, tuning: HttpTuning = {}): Promise<T> {
+  const text = await requestText(url, options, tuning);
   try {
     return JSON.parse(text) as T;
   } catch {
@@ -192,7 +201,7 @@ export interface RawCoachComposition {
   error: unknown;
 }
 
-export function fetchSchedule(trainNo: string, signal?: AbortSignal): Promise<RawSchedule> {
+export function fetchSchedule(trainNo: string, signal?: AbortSignal, tuning?: HttpTuning): Promise<RawSchedule> {
   return requestJson<RawSchedule>(
     `${BASE}/eticketing/protected/mapps1/trnscheduleenquiry/${trainNo}`,
     {
@@ -202,6 +211,7 @@ export function fetchSchedule(trainNo: string, signal?: AbortSignal): Promise<Ra
       },
       ...(signal ? { signal } : {}),
     },
+    tuning,
   );
 }
 
@@ -210,6 +220,7 @@ export function fetchTrainComposition(
   jDate: string,
   boardingStation: string,
   signal?: AbortSignal,
+  tuning?: HttpTuning,
 ): Promise<RawComposition> {
   return requestJson<RawComposition>(
     `${CHART_API}/trainComposition`,
@@ -219,6 +230,7 @@ export function fetchTrainComposition(
       body: JSON.stringify({ trainNo, jDate, boardingStation }),
       ...(signal ? { signal } : {}),
     },
+    tuning,
   );
 }
 
@@ -230,7 +242,7 @@ export function fetchVacantBerth(params: {
   jDate: string | null;
   cls: string;
   chartType: number;
-}, signal?: AbortSignal): Promise<RawVacantBerth> {
+}, signal?: AbortSignal, tuning?: HttpTuning): Promise<RawVacantBerth> {
   return requestJson<RawVacantBerth>(
     `${CHART_API}/vacantBerth`,
     {
@@ -239,6 +251,7 @@ export function fetchVacantBerth(params: {
       body: JSON.stringify(params),
       ...(signal ? { signal } : {}),
     },
+    tuning,
   );
 }
 
@@ -250,7 +263,7 @@ export function fetchCoachComposition(params: {
   jDate: string | null;
   coach: string;
   cls: string;
-}, signal?: AbortSignal): Promise<RawCoachComposition> {
+}, signal?: AbortSignal, tuning?: HttpTuning): Promise<RawCoachComposition> {
   return requestJson<RawCoachComposition>(
     `${CHART_API}/coachComposition`,
     {
@@ -259,6 +272,7 @@ export function fetchCoachComposition(params: {
       body: JSON.stringify(params),
       ...(signal ? { signal } : {}),
     },
+    tuning,
   );
 }
 

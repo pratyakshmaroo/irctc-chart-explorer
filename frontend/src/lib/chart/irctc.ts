@@ -172,6 +172,8 @@ export async function getCoachComposition(
   const cachedCoach = cacheGet<CoachComposition>(coachCacheKey, TTL.coach);
   if (cachedCoach) return cachedCoach;
   if (politeMs > 0) await sleep(politeMs);
+  // Coach fan-out is the slowest path (one call per coach), so fail fast here:
+  // 1 retry and a 12s cap instead of the defaults. Partial results beat a spinner.
   const raw = await fetchCoachComposition({
     trainNo: journey.trainNo,
     boardingStation: journey.boardingStation ?? "",
@@ -180,7 +182,7 @@ export async function getCoachComposition(
     jDate,
     coach,
     cls,
-  }, signal);
+  }, signal, { retries: 1, timeoutMs: 12_000 });
   serverError(raw.error, "coachComposition");
   if (!Array.isArray(raw.bdd)) {
     throw new IrctcApiError("coachComposition response has no bdd", "malformed");

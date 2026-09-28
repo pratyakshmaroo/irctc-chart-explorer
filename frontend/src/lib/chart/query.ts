@@ -1,4 +1,5 @@
 import { getCoachComposition } from "./irctc.ts";
+import { IrctcApiError } from "./client.ts";
 import { buildRouteIndex, resolveUnique, validateOrder } from "./route.ts";
 import { coachKey, evaluateBerth } from "./availability.ts";
 import type {
@@ -31,15 +32,21 @@ export interface CrossBoardingQuery {
   compositions?: CoachComposition[];
 }
 
+export interface ClassCompositions {
+  compositions: CoachComposition[];
+  failedCoaches: string[];
+}
+
 export async function loadClassCompositions(
   journey: Journey,
   classCode: string,
   politeMs = 150,
   signal?: AbortSignal,
   onProgress?: (done: number, total: number) => void,
-): Promise<CoachComposition[]> {
+): Promise<ClassCompositions> {
   const coaches = journey.coaches.filter((c) => c.classCode === classCode);
-  const out: CoachComposition[] = new Array(coaches.length);
+  const out: (CoachComposition | null)[] = new Array(coaches.length).fill(null);
+  const failedCoaches: string[] = [];
   let next = 0;
   let done = 0;
   const workers = Math.min(4, coaches.length);
@@ -49,13 +56,28 @@ export async function loadClassCompositions(
       if (i >= coaches.length) return;
       if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
       const coach = coaches[i]!;
-      out[i] = await getCoachComposition(journey, coach.name, classCode, politeMs, signal);
+      try {
+        out[i] = await getCoachComposition(journey, coach.name, classCode, politeMs, signal);
+      } catch (error) {
+        // One slow/blocked coach must not sink the whole class: record it and
+        // keep the berths we did get. Aborts still propagate immediately.
+        if (error instanceof Error && error.name === "AbortError") throw error;
+        failedCoaches.push(coach.name);
+        console.warn(`coach ${coach.name} skipped:`, error instanceof Error ? error.message : error);
+      }
       done++;
       onProgress?.(done, coaches.length);
     }
   }
   await Promise.all(Array.from({ length: Math.max(workers, 1) }, () => worker()));
-  return out;
+  const compositions = out.filter((c): c is CoachComposition => c !== null);
+  if (compositions.length === 0 && coaches.length > 0) {
+    throw new IrctcApiError(
+      `could not load any ${classCode} coach (IRCTC slow or blocking requests right now)`,
+      "network",
+    );
+  }
+  return { compositions, failedCoaches };
 }
 
 export async function getAvailableBerths(query: AvailableBerthQuery): Promise<ClassAvailability> {
@@ -64,7 +86,7 @@ export async function getAvailableBerths(query: AvailableBerthQuery): Promise<Cl
   const toIdx = resolveUnique(route, query.toStation, "to");
   validateOrder(fromIdx, toIdx, query.fromStation, query.toStation);
 
-  const loaded = query.compositions ?? (await loadClassCompositions(query.journey, query.classCode));
+  const loaded = query.compositions ?? (await loadClassCompositions(query.journey, query.classCode)).compositions;
   const compositions = loaded.filter((c) => c.cls === query.classCode);
   const coaches: CoachAvailability[] = [];
   let availableCount = 0;
@@ -114,7 +136,9 @@ export async function getAvailableBerths(query: AvailableBerthQuery): Promise<Cl
 export async function compareBoardingStations(query: CrossBoardingQuery): Promise<CrossBoardingResult[]> {
   const route = journeyRoute(query.journey);
   const destIdx = resolveUnique(route, query.destination, "destination");
-  const compositions = query.compositions ?? (await loadClassCompositions(query.journey, query.classCode));
+  const { compositions } = query.compositions
+    ? { compositions: query.compositions }
+    : await loadClassCompositions(query.journey, query.classCode);
   const results: CrossBoardingResult[] = [];
 
   for (const boarding of query.boardingStations) {

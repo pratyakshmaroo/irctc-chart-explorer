@@ -11,6 +11,7 @@ import { cn } from "@/lib/utils.ts";
 interface CoachListProps {
   coaches?: readonly CoachSummary[];
   loading?: boolean;
+  progressLabel?: string | null;
   className?: string;
   classCode?: string | null;
   totalAvailable?: number;
@@ -73,6 +74,7 @@ function CoachCard({
 export function CoachList({
   coaches = [],
   loading,
+  progressLabel,
   className,
   classCode,
   totalAvailable,
@@ -80,7 +82,7 @@ export function CoachList({
   onCoachChange,
 }: CoachListProps) {
   if (loading) {
-    return <Loading label="Loading available coaches…" />;
+    return <Loading label={progressLabel ?? "Loading available coaches…"} />;
   }
 
   const availableCoaches = coaches.filter((coach) => coach.available > 0);

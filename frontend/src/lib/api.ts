@@ -53,7 +53,7 @@ function toApiError(error: unknown): ApiError {
 
 /** Browser-side session store. Replaces the server Map in src/server.ts. */
 const journeys = new Map<string, Journey>();
-const compositions = new Map<string, Promise<CoachComposition[]>>();
+const compositions = new Map<string, Promise<{ compositions: CoachComposition[]; failedCoaches: string[] }>>();
 
 function journeyKey(trainNo: string, journeyDate: string, boardingStation: string): string {
   return `${trainNo}|${journeyDate}|${boardingStation}`;
@@ -68,17 +68,22 @@ async function compositionsFor(
   key: string,
   cls: string,
   signal?: AbortSignal,
-): Promise<CoachComposition[]> {
+  onProgress?: (done: number, total: number) => void,
+): Promise<{ list: CoachComposition[]; failed: string[] }> {
   const cacheKey = `${key}|${cls}`;
   let pending = compositions.get(cacheKey);
   if (!pending) {
-    pending = loadClassCompositions(journey, cls, 150, signal).catch((error) => {
+    pending = loadClassCompositions(journey, cls, 150, signal, onProgress).catch((error) => {
       compositions.delete(cacheKey);
       throw error;
     });
     compositions.set(cacheKey, pending);
   }
-  return pending;
+  const { compositions: list, failedCoaches } = await pending;
+  // Late subscribers (a second query while the first is in flight) miss the
+  // progress callbacks; that only affects the loading label, not the data.
+  if (failedCoaches.length > 0) onProgress?.(list.length + failedCoaches.length, list.length + failedCoaches.length);
+  return { list, failed: failedCoaches };
 }
 
 function normalizeDate(raw: string): string | null {
@@ -164,6 +169,8 @@ export interface AvailabilityResult {
   coaches: ApiAvailabilityCoach[];
   rows: ApiAvailableBerth[];
   pagination: { page: number; size: number | "All"; total: number; totalPages: number };
+  /** Coaches IRCTC failed to return (slow/blocked) — excluded from the counts. */
+  warnings: string[];
 }
 
 interface ApiCrossRow {
@@ -176,6 +183,8 @@ interface ApiCrossRow {
 export interface CrossResult {
   ok: true;
   results: ApiCrossRow[];
+  /** Coaches IRCTC failed to return (slow/blocked) — excluded from the counts. */
+  warnings: string[];
 }
 
 function toApiStations(journey: Journey): ApiStation[] {
@@ -275,7 +284,7 @@ function requireJourney(key: string): Journey {
 }
 
 export async function getAvailability(
-  input: { key: string; from: string; to: string; classCode: string; coach?: string | null; page: number; size: PageSize },
+  input: { key: string; from: string; to: string; classCode: string; coach?: string | null; page: number; size: PageSize; onProgress?: (done: number, total: number) => void },
   signal?: AbortSignal,
 ): Promise<AvailabilityResult> {
   try {
@@ -288,7 +297,7 @@ export async function getAvailability(
     if (!isValidPageSize(input.size)) {
       throw new ApiError("usage", 'Invalid page size (use 10, 25, 50, 100 or All).');
     }
-    const loaded = await compositionsFor(journey, input.key, input.classCode, signal);
+    const { list: loaded, failed } = await compositionsFor(journey, input.key, input.classCode, signal, input.onProgress);
     checkAborted(signal);
     const result = await getAvailableBerths({
       journey,
@@ -326,6 +335,7 @@ export async function getAvailability(
         availabilityWindow: r.availabilityWindow ?? { from: input.from, to: input.to },
       })),
       pagination: { page: p.page, size: p.size, total: p.total, totalPages: p.totalPages },
+      warnings: failed,
     } as AvailabilityResult;
   } catch (error) {
     throw toApiError(error);
@@ -333,7 +343,7 @@ export async function getAvailability(
 }
 
 export async function getCross(
-  input: { key: string; dest: string; classCode: string },
+  input: { key: string; dest: string; classCode: string; onProgress?: (done: number, total: number) => void },
   signal?: AbortSignal,
 ): Promise<CrossResult> {
   try {
@@ -351,7 +361,7 @@ export async function getCross(
       .slice(0, destIdx)
       .filter((station) => !station.boardingDisabled)
       .map((station) => station.code);
-    const loaded = await compositionsFor(journey, input.key, input.classCode, signal);
+    const { list: loaded, failed } = await compositionsFor(journey, input.key, input.classCode, signal, input.onProgress);
     checkAborted(signal);
     const results = await compareBoardingStations({
       journey,
@@ -370,6 +380,7 @@ export async function getCross(
         totalBerthsEvaluated: r.totalBerthsEvaluated,
         coachesCovered: r.coachesCovered,
       })),
+      warnings: failed,
     } as CrossResult;
   } catch (error) {
     throw toApiError(error);

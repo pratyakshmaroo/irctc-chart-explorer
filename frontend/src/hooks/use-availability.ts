@@ -44,6 +44,7 @@ export function useAvailability({
   const [pageSize, setPageSize] = useState<PageSize>(10);
   const [result, setResult] = useState<AvailabilityResult | null>(null);
   const [loading, setLoading] = useState(false);
+  const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   const [error, setError] = useState<ApiError | null>(null);
   const [attempt, setAttempt] = useState(0);
 
@@ -70,6 +71,7 @@ export function useAvailability({
       setResult(null);
       setError(null);
       setLoading(Boolean(sessionKey) && isComplete(nextSegment));
+      setProgress(null);
     },
     [segment, sessionKey],
   );
@@ -82,6 +84,7 @@ export function useAvailability({
     setPageRequest(1);
     setResult(null);
     setLoading(false);
+    setProgress(null);
     setError(null);
   }, []);
 
@@ -91,6 +94,7 @@ export function useAvailability({
     if (!sessionKey || !isComplete(segment)) {
       setResult(null);
       setLoading(false);
+      setProgress(null);
       setError(null);
       return;
     }
@@ -99,6 +103,7 @@ export function useAvailability({
     const controller = new AbortController();
     setLoading(true);
     setResult(null);
+    setProgress(null);
     setError(null);
 
     getAvailability(
@@ -110,6 +115,9 @@ export function useAvailability({
         coach,
         page: pageRequest,
         size: pageSize,
+        onProgress: (done, total) => {
+          if (active) setProgress({ done, total });
+        },
       },
       controller.signal,
     )
@@ -123,6 +131,7 @@ export function useAvailability({
           current === res.pagination.page ? current : res.pagination.page,
         );
         setLoading(false);
+        setProgress(null);
       })
       .catch((cause: unknown) => {
         if (!active || isAbortError(cause)) return;
@@ -135,6 +144,7 @@ export function useAvailability({
         );
         setResult(null);
         setLoading(false);
+        setProgress(null);
       });
 
     return () => {
@@ -153,6 +163,7 @@ export function useAvailability({
     pageSize,
     result,
     loading,
+    progress,
     error,
     ready,
     patch,

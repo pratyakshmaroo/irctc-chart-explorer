@@ -23,6 +23,7 @@ export function useCross({
   const [destination, setDestinationState] = useState("");
   const [result, setResult] = useState<CrossResult | null>(null);
   const [loading, setLoading] = useState(false);
+  const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   const [error, setError] = useState<ApiError | null>(null);
   const [attempt, setAttempt] = useState(0);
 
@@ -33,6 +34,7 @@ export function useCross({
       setDestinationState(value);
       setResult(null);
       setError(null);
+      setProgress(null);
       setLoading(Boolean(sessionKey && value && classCode));
     },
     [sessionKey, classCode],
@@ -42,6 +44,7 @@ export function useCross({
     setDestinationState("");
     setResult(null);
     setLoading(false);
+    setProgress(null);
     setError(null);
   }, []);
 
@@ -51,6 +54,7 @@ export function useCross({
     if (!sessionKey || !destination || !classCode) {
       setResult(null);
       setLoading(false);
+      setProgress(null);
       setError(null);
       return;
     }
@@ -59,13 +63,25 @@ export function useCross({
     const controller = new AbortController();
     setLoading(true);
     setResult(null);
+    setProgress(null);
     setError(null);
 
-    getCross({ key: sessionKey, dest: destination, classCode }, controller.signal)
+    getCross(
+      {
+        key: sessionKey,
+        dest: destination,
+        classCode,
+        onProgress: (done, total) => {
+          if (active) setProgress({ done, total });
+        },
+      },
+      controller.signal,
+    )
       .then((res) => {
         if (!active) return;
         setResult(res);
         setLoading(false);
+        setProgress(null);
       })
       .catch((cause: unknown) => {
         if (!active || isAbortError(cause)) return;
@@ -78,6 +94,7 @@ export function useCross({
         );
         setResult(null);
         setLoading(false);
+        setProgress(null);
       });
 
     return () => {
@@ -89,5 +106,5 @@ export function useCross({
     // on every render.
   }, [sessionKey, destination, classCode, attempt, onSessionExpired]);
 
-  return { destination, setDestination, result, loading, error, ready, reset, retry };
+  return { destination, setDestination, result, loading, progress, error, ready, reset, retry };
 }
