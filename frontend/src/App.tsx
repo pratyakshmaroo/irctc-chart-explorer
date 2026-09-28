@@ -15,6 +15,7 @@ import {
   type SearchFields,
   type SearchResult,
 } from "@/components/search/search-screen.tsx";
+import { ConnectionTest } from "@/components/search/connection-test.tsx";
 import { TrainInfo } from "@/components/train/train-info.tsx";
 import { Section } from "@/components/ui/section.tsx";
 import { useAvailability } from "@/hooks/use-availability.ts";
@@ -297,16 +298,19 @@ export function App() {
       </div>
 
       <Section step={1} icon={Search} title="Search train">
-        <SearchScreen
-          boardingOptions={boardingOptions}
-          routeLoaded={route !== null}
-          boardingLoading={searchLoading && route === null}
-          loading={searchLoading}
-          searched={searched}
-          error={searchError}
-          onSearch={handleSearch}
-          onFieldsChange={handleFieldsChange}
-        />
+        <div className="space-y-4">
+          <ConnectionTest />
+          <SearchScreen
+            boardingOptions={boardingOptions}
+            routeLoaded={route !== null}
+            boardingLoading={searchLoading && route === null}
+            loading={searchLoading}
+            searched={searched}
+            error={searchError}
+            onSearch={handleSearch}
+            onFieldsChange={handleFieldsChange}
+          />
+        </div>
       </Section>
 
       {searched && route ? (
