@@ -424,35 +424,6 @@ export function App() {
                   onPageChange={(page) => availability.patch({ page })}
                   onPageSizeChange={(pageSize) => availability.patch({ pageSize })}
                 />
-                {!availability.loading &&
-                result &&
-                result.availableCount === 0 &&
-                result.partials.length > 0 ? (
-                  <div className="space-y-2">
-                    <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                      Nothing covers your full trip — but these berths are free for parts of it
-                    </p>
-                    <ul className="space-y-2">
-                      {result.partials.map((partial) => (
-                        <li
-                          key={`${partial.classCode}:${partial.coachName}:${partial.berthNo}`}
-                          className="rounded-xl border border-border bg-card px-3 py-2.5 text-sm"
-                        >
-                          <span className="font-mono font-bold">{partial.coachName}</span>
-                          <span className="text-muted-foreground"> · berth {partial.berthNo}{partial.berthCode} · free </span>
-                          <span className="font-mono font-semibold text-signal-good">
-                            {partial.windows.map((w) => `${w.from}→${w.to}`).join(" + ")}
-                          </span>
-                        </li>
-                      ))}
-                    </ul>
-                    {result.partialTotal > result.partials.length ? (
-                      <p className="text-xs text-muted-foreground">
-                        +{result.partialTotal - result.partials.length} more partly-free berths.
-                      </p>
-                    ) : null}
-                  </div>
-                ) : null}
               </>
             ) : null}
           </Section>

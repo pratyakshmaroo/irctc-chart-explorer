@@ -150,14 +150,6 @@ interface ApiAvailableBerth {
   availabilityWindow: { from: string; to: string };
 }
 
-interface ApiPartialBerth {
-  coachName: string;
-  classCode: string;
-  berthNo: number;
-  berthCode: string;
-  windows: Array<{ from: string; to: string }>;
-}
-
 interface ApiAvailabilityCoach {
   coachKey: string;
   coachName: string;
@@ -179,10 +171,6 @@ export interface AvailabilityResult {
   pagination: { page: number; size: number | "All"; total: number; totalPages: number };
   /** Coaches IRCTC failed to return (slow/blocked) — excluded from the counts. */
   warnings: string[];
-  /** Berths free for part of the trip (never for the whole trip). Capped. */
-  partials: ApiPartialBerth[];
-  /** Total partials found, before the cap. */
-  partialTotal: number;
 }
 
 interface ApiCrossRow {
@@ -357,19 +345,6 @@ export async function getAvailability(
       })),
       pagination: { page: p.page, size: p.size, total: p.total, totalPages: p.totalPages },
       warnings: failed,
-      partials: result.partials
-        .filter((b) => !input.coach || `${b.classCode}:${b.coachName}` === input.coach)
-        .slice(0, 30)
-        .map((b) => ({
-          coachName: b.coachName,
-          classCode: b.classCode,
-          berthNo: b.berthNo,
-          berthCode: b.berthCode,
-          windows: b.windows,
-        })),
-      partialTotal: result.partials.filter(
-        (b) => !input.coach || `${b.classCode}:${b.coachName}` === input.coach,
-      ).length,
     } as AvailabilityResult;
   } catch (error) {
       if (!(error instanceof Error && error.name === "AbortError")) {

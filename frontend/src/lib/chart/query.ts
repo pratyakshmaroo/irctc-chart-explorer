@@ -1,7 +1,7 @@
 import { getCoachComposition } from "./irctc.ts";
 import { IrctcApiError } from "./client.ts";
 import { buildRouteIndex, resolveUnique, validateOrder } from "./route.ts";
-import { coachKey, evaluateBerth, freeRunsWithin, hasCompleteSegmentCoverage, normalizeBerth } from "./availability.ts";
+import { coachKey, evaluateBerth } from "./availability.ts";
 import type {
   AvailableBerthRow,
   ClassAvailability,
@@ -9,7 +9,6 @@ import type {
   CoachComposition,
   CrossBoardingResult,
   Journey,
-  PartialBerth,
 } from "./types.ts";
 import type { RouteIndex } from "./route.ts";
 
@@ -90,7 +89,6 @@ export async function getAvailableBerths(query: AvailableBerthQuery): Promise<Cl
   const loaded = query.compositions ?? (await loadClassCompositions(query.journey, query.classCode)).compositions;
   const compositions = loaded.filter((c) => c.cls === query.classCode);
   const coaches: CoachAvailability[] = [];
-  const allPartials: PartialBerth[] = [];
   let availableCount = 0;
   let totalBerths = 0;
 
@@ -108,29 +106,6 @@ export async function getAvailableBerths(query: AvailableBerthQuery): Promise<Cl
       }),
     );
     const result = rows.filter((row) => row.available);
-    // Berths that can't cover the whole trip but are free for parts of it
-    // become fallback options — but only when the berth data fully covers the
-    // trip (no gaps we can't see) and the berth is in service.
-    for (let i = 0; i < composition.berths.length; i++) {
-      if (rows[i]!.available) continue;
-      const berth = composition.berths[i]!;
-      if (berth.enabled === false) continue;
-      const occupancy = normalizeBerth(berth, route);
-      if (occupancy.unresolvedSegments.length > 0) continue;
-      if (!hasCompleteSegmentCoverage(occupancy, fromIdx, toIdx)) continue;
-      const windows = freeRunsWithin(occupancy, fromIdx, toIdx).map((run) => ({
-        from: route.codes[run.fromIdx]!,
-        to: route.codes[run.toIdx]!,
-      }));
-      if (windows.length === 0) continue;
-      allPartials.push({
-        coachName: composition.coachName,
-        classCode: composition.cls,
-        berthNo: berth.berthNo,
-        berthCode: berth.berthCode,
-        windows,
-      });
-    }
     // Every berth in the composition is evaluated, available or not. Counting
     // from `rows` keeps totalBerths an honest denominator instead of a second
     // tally of the same available rows.
@@ -148,9 +123,6 @@ export async function getAvailableBerths(query: AvailableBerthQuery): Promise<Cl
     });
   }
 
-  // Fewest fragments first — one long free stretch beats three short ones.
-  allPartials.sort((a, b) => a.windows.length - b.windows.length);
-
   return {
     classCode: query.classCode,
     fromStation: query.fromStation,
@@ -158,7 +130,6 @@ export async function getAvailableBerths(query: AvailableBerthQuery): Promise<Cl
     coaches,
     availableCount,
     totalBerths,
-    partials: allPartials,
   };
 }
 
