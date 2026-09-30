@@ -8,6 +8,8 @@ interface EmptyStateProps {
   description?: string;
   icon?: LucideIcon;
   className?: string;
+  /** Small inline note instead of the big centered panel. */
+  compact?: boolean;
 }
 
 export function EmptyState({
@@ -15,7 +17,21 @@ export function EmptyState({
   description,
   icon: Icon = Inbox,
   className,
+  compact = false,
 }: EmptyStateProps) {
+  if (compact) {
+    return (
+      <p
+        className={cn(
+          "rounded-lg border border-dashed border-border bg-muted/20 px-3 py-2 text-xs leading-relaxed text-muted-foreground",
+          className,
+        )}
+      >
+        <span className="font-semibold text-foreground">{title}.</span>
+        {description ? <span> {description}</span> : null}
+      </p>
+    );
+  }
   return (
     <div
       className={cn(

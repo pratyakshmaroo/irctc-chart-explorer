@@ -90,7 +90,8 @@ export function CoachList({
     return (
       <EmptyState
         icon={Armchair}
-        title="No coaches with available berths"
+        compact
+        title="No coaches with free berths"
         description="Only coaches with a confirmed free berth for the complete selected segment appear here."
       />
     );

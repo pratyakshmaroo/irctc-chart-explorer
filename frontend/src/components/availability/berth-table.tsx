@@ -165,6 +165,7 @@ export function BerthTable({
     return (
       <EmptyState
         icon={Table2}
+        compact
         title="No available berths"
         description="Only berths confirmed free for the complete selected segment appear here."
       />
