@@ -152,9 +152,9 @@ export function App() {
   const earlierBoardings = useMemo(
     () =>
       fromIdx < 0
-        ? rankedBoardings
+        ? rankedBoardings.filter((b) => b.availableCount > 0)
         : rankedBoardings.filter(
-            (b) => stationIndex(routeStations, b.fromStation) < fromIdx,
+            (b) => b.availableCount > 0 && stationIndex(routeStations, b.fromStation) < fromIdx,
           ),
     [rankedBoardings, routeStations, fromIdx],
   );
@@ -163,7 +163,7 @@ export function App() {
       fromIdx < 0
         ? []
         : rankedBoardings.filter(
-            (b) => stationIndex(routeStations, b.fromStation) > fromIdx,
+            (b) => b.availableCount > 0 && stationIndex(routeStations, b.fromStation) > fromIdx,
           ),
     [rankedBoardings, routeStations, fromIdx],
   );
