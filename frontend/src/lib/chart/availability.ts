@@ -98,6 +98,30 @@ export function overlappingSegments(segments: readonly BookingSegment[], route: 
   });
 }
 
+/**
+ * Maximal free runs of legs inside [fromIdx, toIdx). Used to show *where* a
+ * berth is free when it can't cover the whole requested trip.
+ */
+export function freeRunsWithin(
+  occupancy: Pick<BerthOccupancy, "legsFree">,
+  fromIdx: number,
+  toIdx: number,
+): Array<{ fromIdx: number; toIdx: number }> {
+  const runs: Array<{ fromIdx: number; toIdx: number }> = [];
+  let leg = fromIdx;
+  while (leg < toIdx) {
+    if (!occupancy.legsFree[leg]) {
+      leg++;
+      continue;
+    }
+    let end = leg + 1;
+    while (end < toIdx && occupancy.legsFree[end]) end++;
+    runs.push({ fromIdx: leg, toIdx: end });
+    leg = end;
+  }
+  return runs;
+}
+
 export function evaluateBerth(input: {
   berth: Berth;
   route: RouteIndex;

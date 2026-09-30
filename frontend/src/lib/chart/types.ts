@@ -116,6 +116,15 @@ export interface CoachAvailability {
   totalBerths: number;
 }
 
+/** A berth that can't cover the whole trip but is free for parts of it. */
+export interface PartialBerth {
+  coachName: string;
+  classCode: string;
+  berthNo: number;
+  berthCode: string;
+  windows: AvailabilityInterval[];
+}
+
 export interface ClassAvailability {
   classCode: string;
   fromStation: string;
@@ -125,6 +134,8 @@ export interface ClassAvailability {
   availableCount: number;
   /** Every berth evaluated across the class, available or not. */
   totalBerths: number;
+  /** Berths free for part of the trip, longest coverage first. */
+  partials: PartialBerth[];
 }
 
 export interface CrossBoardingResult {
