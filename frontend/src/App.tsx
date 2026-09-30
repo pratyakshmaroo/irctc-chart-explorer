@@ -159,19 +159,21 @@ export function App() {
   const earlierBoardings = useMemo(() => {
     const inGroup = (b: { fromStation: string }) =>
       fromIdx < 0 || stationIndex(routeStations, b.fromStation) < fromIdx;
-    const group = rankedBoardings.filter(inGroup);
-    // Best first; zero-seat stations sink to the bottom.
-    return [...group].sort((a, b) => {
-      if (fromIdx < 0) return 0;
-      return b.availableCount - a.availableCount || b.coachesCovered - a.coachesCovered;
-    });
+    // Zero-seat stations are hidden — a 40-station wall of zeros helps nobody.
+    const group = rankedBoardings.filter((b) => b.availableCount > 0 && inGroup(b));
+    // Best first.
+    return [...group].sort(
+      (a, b) => b.availableCount - a.availableCount || b.coachesCovered - a.coachesCovered,
+    );
   }, [rankedBoardings, routeStations, fromIdx]);
   const laterBoardings = useMemo(() => {
     if (fromIdx < 0) return [];
-    // Journey order, nearest stop first — zeros stay inline so the route reads
-    // top to bottom.
+    // Journey order, nearest stop first; zero-seat stations hidden.
     return [...boardings]
-      .filter((b) => stationIndex(routeStations, b.fromStation) > fromIdx)
+      .filter(
+        (b) =>
+          b.availableCount > 0 && stationIndex(routeStations, b.fromStation) > fromIdx,
+      )
       .sort(
         (a, b) =>
           stationIndex(routeStations, a.fromStation) - stationIndex(routeStations, b.fromStation),
