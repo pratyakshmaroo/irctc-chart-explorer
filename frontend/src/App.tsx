@@ -361,6 +361,10 @@ export function App() {
           onSearch={handleSearch}
           onFieldsChange={handleFieldsChange}
         />
+        <p className="rounded-lg bg-muted/40 px-3 py-2 text-xs leading-relaxed text-muted-foreground">
+          Shows seats only after the chart is prepared — usually about 4 hours before
+          departure (previous evening for early-morning trains).
+        </p>
       </Section>
 
       {searched && route && session ? (
