@@ -33,6 +33,6 @@ npm test
 
 ## How it works
 
-- `frontend/src/App.tsx` — 7-step UI: search → train → route → availability → coaches → berths → cross-boarding compare.
+- `frontend/src/App.tsx` — 3 blocks: search → seats (auto-runs with smart defaults) → earlier/later boarding comparison.
 - `frontend/src/lib/chart/` — IRCTC clients + seat logic + free per-user `localStorage` cache (schedule 7d, journey 12h, coach 2h).
 - `src/` — same logic for the Node CLI + tests. No server remains.
