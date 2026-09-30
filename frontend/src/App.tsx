@@ -53,23 +53,30 @@ function BoardingRow({
   isCurrent: boolean;
   onSelect: (code: string) => void;
 }) {
+  // Zero-seat stations stay visible for context but shrink and can't be picked.
+  const empty = boarding.availableCount === 0;
+  const disabled = isCurrent || empty;
   return (
     <li>
       <button
         type="button"
-        disabled={isCurrent}
+        disabled={disabled}
         onClick={() => onSelect(boarding.fromStation)}
-        className="flex w-full items-center justify-between gap-3 rounded-xl border border-border bg-card px-3 py-2.5 text-left hover:border-rail/40 disabled:cursor-default disabled:opacity-70"
+        className={
+          empty
+            ? "flex w-full items-center justify-between gap-3 rounded-lg border border-border/60 bg-card px-2.5 py-1.5 text-left opacity-60"
+            : "flex w-full items-center justify-between gap-3 rounded-xl border border-border bg-card px-3 py-2.5 text-left hover:border-rail/40 disabled:cursor-default disabled:opacity-70"
+        }
       >
         <span>
-          <span className="font-mono text-sm font-bold">{boarding.fromStation}</span>
+          <span className={empty ? "font-mono text-xs font-bold" : "font-mono text-sm font-bold"}>{boarding.fromStation}</span>
           <span className="text-xs text-muted-foreground"> · {boarding.fromName}</span>
           {isCurrent ? (
             <span className="text-xs text-muted-foreground"> · your boarding</span>
           ) : null}
         </span>
         <span className="text-sm tabular-nums">
-          <span className="font-extrabold text-signal-good">{boarding.availableCount}</span>
+          <span className={empty ? "font-bold text-muted-foreground" : "font-extrabold text-signal-good"}>{boarding.availableCount}</span>
           <span className="text-muted-foreground"> seats</span>
         </span>
       </button>
@@ -149,24 +156,27 @@ export function App() {
   // around your boarding: book EARLY to lock a seat before it reaches you,
   // or board LATE where seats free up en route.
   const fromIdx = segment?.from ? stationIndex(routeStations, segment.from) : -1;
-  const earlierBoardings = useMemo(
-    () =>
-      fromIdx < 0
-        ? rankedBoardings.filter((b) => b.availableCount > 0)
-        : rankedBoardings.filter(
-            (b) => b.availableCount > 0 && stationIndex(routeStations, b.fromStation) < fromIdx,
-          ),
-    [rankedBoardings, routeStations, fromIdx],
-  );
-  const laterBoardings = useMemo(
-    () =>
-      fromIdx < 0
-        ? []
-        : rankedBoardings.filter(
-            (b) => b.availableCount > 0 && stationIndex(routeStations, b.fromStation) > fromIdx,
-          ),
-    [rankedBoardings, routeStations, fromIdx],
-  );
+  const earlierBoardings = useMemo(() => {
+    const inGroup = (b: { fromStation: string }) =>
+      fromIdx < 0 || stationIndex(routeStations, b.fromStation) < fromIdx;
+    const group = rankedBoardings.filter(inGroup);
+    // Best first; zero-seat stations sink to the bottom.
+    return [...group].sort((a, b) => {
+      if (fromIdx < 0) return 0;
+      return b.availableCount - a.availableCount || b.coachesCovered - a.coachesCovered;
+    });
+  }, [rankedBoardings, routeStations, fromIdx]);
+  const laterBoardings = useMemo(() => {
+    if (fromIdx < 0) return [];
+    // Journey order, nearest stop first — zeros stay inline so the route reads
+    // top to bottom.
+    return [...boardings]
+      .filter((b) => stationIndex(routeStations, b.fromStation) > fromIdx)
+      .sort(
+        (a, b) =>
+          stationIndex(routeStations, a.fromStation) - stationIndex(routeStations, b.fromStation),
+      );
+  }, [boardings, routeStations, fromIdx]);
 
   function teardownSearch() {
     setSession(null);
