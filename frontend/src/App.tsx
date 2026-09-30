@@ -1,29 +1,23 @@
-import { useMemo, useRef, useState } from "react";
-import { Armchair, Route, Scale, Search, Table2, TrainFront, Waypoints } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Armchair, Scale, Search } from "lucide-react";
 
 import { AppFooter, AppHeader } from "@/components/app/app-shell.tsx";
-import { SummaryStats } from "@/components/app/summary-stats.tsx";
 import { AvailabilitySearch } from "@/components/availability/availability-search.tsx";
 import { BerthTable } from "@/components/availability/berth-table.tsx";
 import { CoachList } from "@/components/availability/coach-list.tsx";
-import { CrossComparison } from "@/components/comparison/cross-comparison.tsx";
 import { ErrorState } from "@/components/feedback/error-state.tsx";
-import { RequestLog } from "@/components/feedback/request-log.tsx";
-import { RouteTimeline } from "@/components/route/route-timeline.tsx";
+import { Loading } from "@/components/feedback/loading.tsx";
 import {
   SearchScreen,
   type SearchFields,
   type SearchResult,
 } from "@/components/search/search-screen.tsx";
-import { ConnectionTest } from "@/components/search/connection-test.tsx";
-import { TrainInfo } from "@/components/train/train-info.tsx";
 import { Section } from "@/components/ui/section.tsx";
 import { useAvailability } from "@/hooks/use-availability.ts";
 import { useCross } from "@/hooks/use-cross.ts";
 import {
   destinationAfter,
   selectBoardingStations,
-  selectDestinations,
   stationIndex,
   toBerthRows,
   toBoardings,
@@ -32,8 +26,9 @@ import {
 } from "@/lib/adapters.ts";
 import { createSession, getRoute, isAbortError } from "@/lib/api.ts";
 import type { ApiStation, SessionResult } from "@/lib/api.ts";
+import { formatJourneyDate } from "@/lib/dates.ts";
 import { describeError } from "@/lib/errors.ts";
-import type { JourneySummary, SegmentSelection, StationOption } from "@/lib/types.ts";
+import type { StationOption } from "@/lib/types.ts";
 
 interface RouteData {
   trainNo: string;
@@ -59,9 +54,8 @@ export function App() {
   const [session, setSession] = useState<SessionData | null>(null);
   const searchRequestRef = useRef<AbortController | null>(null);
 
-  // A chart session can expire server-side; both queries report it the same way
-  // and it is handled in one place. Hoisted, so the hooks below can pass it
-  // before the consts it touches are assigned — it is only ever called later.
+  // A chart session can expire; both queries report it the same way
+  // and it is handled in one place.
   function handleSessionExpired() {
     setSession(null);
     setSearched(false);
@@ -82,6 +76,15 @@ export function App() {
     onSessionExpired: handleSessionExpired,
   });
 
+  // The comparison always follows the selected destination — no picker.
+  const segmentTo = segment?.to ?? "";
+  const sessionKey = session?.key;
+  const crossDestination = cross.destination;
+  useEffect(() => {
+    if (!sessionKey || !segmentTo) return;
+    if (crossDestination !== segmentTo) cross.setDestination(segmentTo);
+  }, [sessionKey, segmentTo, crossDestination, cross.setDestination]);
+
   /** One function object for the whole route list, shared by every consumer. */
   const routeStations = useMemo<StationOption[]>(
     () => toRouteNodes(route?.stations ?? []),
@@ -100,9 +103,13 @@ export function App() {
     cross.result,
     routeStations,
   ]);
-  const crossDestinations = useMemo(
-    () => selectDestinations(routeStations, segment?.from ?? ""),
-    [routeStations, segment?.from],
+  const rankedBoardings = useMemo(
+    () =>
+      [...boardings].sort(
+        (a, b) =>
+          b.availableCount - a.availableCount || b.coachesCovered - a.coachesCovered,
+      ),
+    [boardings],
   );
 
   function teardownSearch() {
@@ -170,10 +177,14 @@ export function App() {
           trainName: res.journey.trainName,
           stations: res.journey.stations,
         });
+        // Sensible defaults so seats load with zero extra taps: ride to the
+        // final stop in the best class.
+        const stations = res.journey.stations;
+        const finalStop = stations[stations.length - 1]?.code ?? "";
         availability.patch({
           segment: {
             from: res.journey.boardingStation ?? "",
-            to: "",
+            to: finalStop,
             cls: res.defaultClass ?? res.classes[0] ?? "",
           },
         });
@@ -201,57 +212,31 @@ export function App() {
     const fromIdx = stationIndex(routeStations, value);
     const station = routeStations[fromIdx];
     if (!station || station.boardingDisabled || fromIdx >= routeStations.length - 1) return;
-    applySegmentChange({ from: value, to: destinationAfter(routeStations, value, segment?.to ?? "") });
+    availability.patch({ segment: { from: value, to: destinationAfter(routeStations, value, segment?.to ?? "") } });
   }
 
   function handleToChange(value: string) {
     const fromIdx = stationIndex(routeStations, segment?.from ?? "");
     const toIdx = stationIndex(routeStations, value);
     if (fromIdx < 0 || toIdx <= fromIdx) return;
-    applySegmentChange({ to: value });
+    availability.patch({ segment: { to: value } });
   }
 
   function handleCrossBoardingSelect(value: string) {
     const fromIdx = stationIndex(routeStations, value);
-    const toIdx = stationIndex(routeStations, cross.destination);
+    const toIdx = stationIndex(routeStations, segment?.to ?? "");
     if (fromIdx < 0 || toIdx <= fromIdx || routeStations[fromIdx]?.boardingDisabled) return;
-    applySegmentChange({ from: value, to: cross.destination });
-  }
-
-  /**
-   * A new segment makes the previous comparison meaningless, so the cross
-   * destination follows the segment. A coach filter only narrows the berth
-   * table, so the comparison is cleared instead.
-   */
-  function applySegmentChange(patch: Partial<SegmentSelection>) {
-    availability.patch({ segment: patch });
-    cross.setDestination(patch.to ?? segment?.to ?? "");
+    availability.patch({ segment: { from: value } });
   }
 
   function handleCoachChange(value: string | null) {
     availability.patch({ coach: value });
-    cross.setDestination("");
   }
 
-  const trainSummary: JourneySummary | null = session
-    ? {
-        trainNo: session.journey.trainNo,
-        trainName: session.journey.trainName,
-        journeyDate: session.journey.journeyDate,
-        boardingStation: session.journey.boardingStation,
-        chartStatus: session.chartPrepared ? "prepared" : "pending",
-        chartingStation: session.journey.chart.destinationStation,
-      }
-    : route
-      ? {
-          trainNo: route.trainNo,
-          trainName: route.trainName,
-          journeyDate: lastSearch?.journeyDate ?? "",
-          boardingStation: null,
-          chartStatus: "unknown",
-          chartingStation: null,
-        }
-      : null;
+  const journey = session?.journey;
+  const headerLine = journey
+    ? `${journey.trainNo}${journey.trainName ? ` ${journey.trainName}` : ""} · ${formatJourneyDate(journey.journeyDate)} · board ${journey.boardingStation ?? "—"} · chart ${session?.chartPrepared ? "ready" : "not ready yet"}`
+    : null;
 
   const visibleCoaches = coach
     ? coachSummaries.filter((entry) => entry.coachKey === coach)
@@ -259,10 +244,18 @@ export function App() {
   const selectedCoachName = coach
     ? coachSummaries.find((entry) => entry.coachKey === coach)?.coachName
     : null;
-  // The berth count respects the coach filter, so say so rather than letting the
-  // two adjacent stats silently describe different populations.
-  const berthHint = coach && result ? `in coach ${coach.split(":")[1] ?? coach}` : undefined;
   const resultsReady = availabilityReady && !availability.error;
+
+  const statsLine = !availabilityReady
+    ? "Pick a destination and class to see seats."
+    : availability.loading
+      ? "Checking seats…"
+      : availability.error
+        ? "Seats unavailable."
+        : result
+          ? `${result.availableCount} of ${result.totalBerths} berths free · ${segment?.cls} · ${segment?.from}→${segment?.to}`
+          : "No result.";
+
   const coachProgress = availability.progress;
   const coachProgressLabel =
     availability.loading && coachProgress && coachProgress.total > 0
@@ -272,16 +265,9 @@ export function App() {
   const crossProgressLabel =
     cross.loading && crossProgress && crossProgress.total > 0
       ? `Loading coaches ${Math.min(crossProgress.done + 1, crossProgress.total)} of ${crossProgress.total}…`
-      : null;
+      : "Comparing earlier boarding stations…";
   const skippedCoaches = result?.warnings ?? [];
-
-  /** "—" while the section is not queryable or has failed, "…" while in flight. */
-  function countStat(value: string | number | null | undefined): string | number {
-    if (!availabilityReady) return "—";
-    if (availability.loading) return "…";
-    if (availability.error) return "—";
-    return value ?? 0;
-  }
+  const crossWarnings = cross.result?.warnings ?? [];
 
   return (
     <div className="app-surface mx-auto flex min-h-svh w-full max-w-2xl flex-col gap-8 px-4 py-6 sm:gap-10 sm:px-6 sm:py-10">
@@ -292,61 +278,30 @@ export function App() {
           Live chart · seat check
         </p>
         <p className="text-sm leading-relaxed text-muted-foreground">
-          Look up a train journey and inspect its prepared chart, free berths
-          and the best boarding point for your seat.
+          Look up a train journey and see every free berth — plus the best station to board from.
         </p>
       </div>
 
       <Section step={1} icon={Search} title="Search train">
-        <div className="space-y-4">
-          <ConnectionTest />
-          <SearchScreen
-            boardingOptions={boardingOptions}
-            routeLoaded={route !== null}
-            boardingLoading={searchLoading && route === null}
-            loading={searchLoading}
-            searched={searched}
-            error={searchError}
-            onSearch={handleSearch}
-            onFieldsChange={handleFieldsChange}
-          />
-        </div>
+        <SearchScreen
+          boardingOptions={boardingOptions}
+          routeLoaded={route !== null}
+          boardingLoading={searchLoading && route === null}
+          loading={searchLoading}
+          searched={searched}
+          error={searchError}
+          onSearch={handleSearch}
+          onFieldsChange={handleFieldsChange}
+        />
       </Section>
 
-      {searched && route ? (
+      {searched && route && session ? (
         <>
           <Section
             step={2}
-            title="Train"
-            description="Journey and chart summary for the searched train."
-            icon={TrainFront}
-          >
-            <TrainInfo journey={trainSummary} loading={searchLoading && !trainSummary} />
-          </Section>
-
-          <Section
-            step={3}
-            title="Route"
-            description="See the route, journey origin, and selected From → To range."
-            icon={Route}
-          >
-            <RouteTimeline
-              nodes={routeStations}
-              selectedCode={segment?.from}
-              selectedToCode={segment?.to}
-              boardingStation={session?.journey.boardingStation}
-              onSelect={handleFromChange}
-              loading={searchLoading && route === null}
-              disabled={searchLoading}
-            />
-          </Section>
-
-          <Section
-            step={4}
-            title="Availability"
-            description="Choose a forward segment and class, then inspect confirmed berths."
-            icon={Waypoints}
-            className="rounded-3xl border border-rail/20 bg-rail/[0.025] p-4 sm:p-6"
+            title="Seats"
+            description={headerLine ?? "Free berths for your trip."}
+            icon={Armchair}
           >
             <AvailabilitySearch
               stations={routeStations}
@@ -354,52 +309,30 @@ export function App() {
               onFromChange={handleFromChange}
               to={segment?.to ?? ""}
               onToChange={handleToChange}
-              classes={session?.classes ?? []}
+              classes={session.classes}
               classCode={segment?.cls ?? ""}
-              onClassChange={(cls) => applySegmentChange({ cls })}
-              disabled={session === null}
+              onClassChange={(cls) => availability.patch({ segment: { cls } })}
+              disabled={false}
             />
 
-            <SummaryStats
-              from={segment?.from ?? ""}
-              to={segment?.to ?? ""}
-              classCode={segment?.cls ?? ""}
-              berthCount={countStat(
-                result && availabilityReady
-                  ? `${result.availableCount} of ${result.totalBerths}`
-                  : null,
-              )}
-              berthHint={berthHint}
-              coachCount={countStat(coach ? visibleCoaches.length : coachSummaries.length)}
-            />
+            <p className="rounded-xl border border-border bg-card px-3 py-2.5 text-sm">
+              <span className="font-semibold tabular-nums">{statsLine}</span>
+              {skippedCoaches.length > 0 ? (
+                <span className="text-muted-foreground"> ({skippedCoaches.length} slow coach{skippedCoaches.length === 1 ? "" : "es"} skipped — retry to include)</span>
+              ) : null}
+            </p>
 
             {availability.error ? (
               <ErrorState
-                title="Availability query failed"
+                title="Seats query failed"
                 message={describeError(availability.error)}
                 onRetry={availability.retry}
                 className="py-8"
               />
             ) : null}
-            {!availabilityReady && !availability.error ? (
-              <p className="rounded-lg border border-dashed border-border px-3 py-2.5 text-xs leading-relaxed text-muted-foreground">
-                {session
-                  ? "Choose a destination segment and class to see confirmed availability."
-                  : "Open a chart with a boarding station to enable availability."}
-              </p>
-            ) : null}
 
-            <RequestLog />
-          </Section>
-
-          {resultsReady ? (
-            <>
-              <Section
-                step={5}
-                title="Coaches"
-                description="Tap a coach to filter the berth table to that coach."
-                icon={Armchair}
-              >
+            {resultsReady ? (
+              <>
                 <CoachList
                   coaches={coachSummaries}
                   loading={availability.loading}
@@ -409,21 +342,6 @@ export function App() {
                   selectedCoachKey={coach}
                   onCoachChange={handleCoachChange}
                 />
-                {skippedCoaches.length > 0 ? (
-                  <p className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2.5 text-xs leading-relaxed text-amber-700 dark:text-amber-300">
-                    Skipped {skippedCoaches.length} coach{skippedCoaches.length === 1 ? "" : "es"} that
-                    IRCTC was too slow to return ({skippedCoaches.join(", ")}). Counts cover the
-                    loaded coaches only — retry to include them.
-                  </p>
-                ) : null}
-              </Section>
-
-              <Section
-                step={6}
-                title="Berth detail"
-                description="Only confirmed available berths are shown, with their actual free window."
-                icon={Table2}
-              >
                 <BerthTable
                   rows={berthRows}
                   total={result?.pagination.total ?? 0}
@@ -438,29 +356,66 @@ export function App() {
                   onPageChange={(page) => availability.patch({ page })}
                   onPageSizeChange={(pageSize) => availability.patch({ pageSize })}
                 />
-              </Section>
-            </>
-          ) : null}
+              </>
+            ) : null}
+          </Section>
 
           {segment?.to ? (
             <Section
-              step={7}
-              title="Cross-boarding comparison"
-              description="Compare earlier valid boarding stations for the selected destination."
+              step={3}
+              title="Earlier boarding stations"
+              description={`More seats if you board before ${segment.to}? Tap one to switch.`}
               icon={Scale}
             >
-              <CrossComparison
-                destinations={crossDestinations}
-                destination={cross.destination}
-                onDestinationChange={cross.setDestination}
-                boardings={boardings}
-                loading={cross.loading}
-                loadingLabel={crossProgressLabel}
-                disabled={session === null || !crossClass}
-                error={cross.error ? describeError(cross.error) : null}
-                onRetry={cross.retry}
-                onBoardingSelect={handleCrossBoardingSelect}
-              />
+              {cross.error ? (
+                <ErrorState
+                  title="Comparison unavailable"
+                  message={describeError(cross.error)}
+                  onRetry={cross.retry}
+                  className="py-8"
+                />
+              ) : cross.loading ? (
+                <Loading label={crossProgressLabel} />
+              ) : rankedBoardings.length === 0 ? (
+                <p className="rounded-lg border border-dashed border-border px-3 py-2.5 text-xs leading-relaxed text-muted-foreground">
+                  No earlier boarding stations to compare for this destination.
+                </p>
+              ) : (
+                <>
+                  <ul className="space-y-2">
+                    {rankedBoardings.map((boarding) => {
+                      const isCurrent = boarding.fromStation === segment?.from;
+                      return (
+                        <li key={boarding.fromStation}>
+                          <button
+                            type="button"
+                            disabled={isCurrent}
+                            onClick={() => handleCrossBoardingSelect(boarding.fromStation)}
+                            className="flex w-full items-center justify-between gap-3 rounded-xl border border-border bg-card px-3 py-2.5 text-left hover:border-rail/40 disabled:cursor-default disabled:opacity-70"
+                          >
+                            <span>
+                              <span className="font-mono text-sm font-bold">{boarding.fromStation}</span>
+                              <span className="text-xs text-muted-foreground"> · {boarding.fromName}</span>
+                              {isCurrent ? (
+                                <span className="text-xs text-muted-foreground"> · your boarding</span>
+                              ) : null}
+                            </span>
+                            <span className="text-sm tabular-nums">
+                              <span className="font-extrabold text-signal-good">{boarding.availableCount}</span>
+                              <span className="text-muted-foreground"> seats</span>
+                            </span>
+                          </button>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                  {crossWarnings.length > 0 ? (
+                    <p className="text-xs text-muted-foreground">
+                      {crossWarnings.length} slow coach{crossWarnings.length === 1 ? "" : "es"} skipped in these counts.
+                    </p>
+                  ) : null}
+                </>
+              )}
             </Section>
           ) : null}
         </>

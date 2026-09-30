@@ -2,6 +2,8 @@ node_modules/
 frontend/dist/
 dist/
 *.log
+brag-output*/
+.agents/
 
 # Editor / OS cruft
 .DS_Store
