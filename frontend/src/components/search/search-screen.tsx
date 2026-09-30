@@ -1,5 +1,5 @@
 import { startOfToday } from "date-fns";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { CircleAlert, CircleCheck, Loader2, MapPin, Search, TrainFront } from "lucide-react";
 
 import { Button } from "@/components/ui/button.tsx";
@@ -72,6 +72,13 @@ export function SearchScreen({
   const [boarding, setBoarding] = useState("");
   const [errors, setErrors] = useState<FieldErrors>({});
 
+  // Latest submitter without re-subscribing the effect below.
+  const onSearchRef = useRef(onSearch);
+  onSearchRef.current = onSearch;
+  // Combos already auto-opened — selecting a *different* boarding (or editing
+  // train/date) fires again, re-picking the same combo does not.
+  const autoFiredRef = useRef("");
+
   // `boardingOptions` arrives pre-filtered and memoised by the caller, so it is
   // safe to use directly as the effect dependency below.
   const hasRouteData = routeLoaded || boardingOptions.length > 0;
@@ -96,6 +103,22 @@ export function SearchScreen({
       notifyFields(trainNo, journeyDate, "");
     }
   }, [boarding, journeyDate, trainNo, boardingOptions]);
+
+  // Open the chart automatically once a boarding station is picked — no extra
+  // tap. Re-fires only when the train/date/boarding combo actually changes.
+  useEffect(() => {
+    if (!boarding || loading) return;
+    if (!/^\d{4,5}$/.test(trainNo) || !journeyDate) return;
+    const combo = `${trainNo}|${isoDateOf(journeyDate)}|${boarding}`;
+    if (autoFiredRef.current === combo) return;
+    autoFiredRef.current = combo;
+    setErrors((prev) => ({ ...prev, boarding: undefined }));
+    void onSearchRef.current({
+      trainNo,
+      journeyDate: isoDateOf(journeyDate),
+      boardingStation: boarding,
+    });
+  }, [boarding, loading, trainNo, journeyDate]);
 
   function validate(): SearchResult | null {
     const next: FieldErrors = {};
@@ -141,6 +164,7 @@ export function SearchScreen({
     setJourneyDate(undefined);
     setBoarding("");
     setErrors({});
+    autoFiredRef.current = "";
     onFieldsChange?.({ trainNo: "", journeyDate: null, boardingStation: null });
   }
 
