@@ -44,6 +44,39 @@ type SessionData = {
   chartPrepared: boolean;
 };
 
+function BoardingRow({
+  boarding,
+  isCurrent,
+  onSelect,
+}: {
+  boarding: { fromStation: string; fromName: string; availableCount: number };
+  isCurrent: boolean;
+  onSelect: (code: string) => void;
+}) {
+  return (
+    <li>
+      <button
+        type="button"
+        disabled={isCurrent}
+        onClick={() => onSelect(boarding.fromStation)}
+        className="flex w-full items-center justify-between gap-3 rounded-xl border border-border bg-card px-3 py-2.5 text-left hover:border-rail/40 disabled:cursor-default disabled:opacity-70"
+      >
+        <span>
+          <span className="font-mono text-sm font-bold">{boarding.fromStation}</span>
+          <span className="text-xs text-muted-foreground"> · {boarding.fromName}</span>
+          {isCurrent ? (
+            <span className="text-xs text-muted-foreground"> · your boarding</span>
+          ) : null}
+        </span>
+        <span className="text-sm tabular-nums">
+          <span className="font-extrabold text-signal-good">{boarding.availableCount}</span>
+          <span className="text-muted-foreground"> seats</span>
+        </span>
+      </button>
+    </li>
+  );
+}
+
 export function App() {
   const [searched, setSearched] = useState(false);
   const [searchLoading, setSearchLoading] = useState(false);
@@ -110,6 +143,29 @@ export function App() {
           b.availableCount - a.availableCount || b.coachesCovered - a.coachesCovered,
       ),
     [boardings],
+  );
+
+  // The backend compares every station before the destination — split them
+  // around your boarding: book EARLY to lock a seat before it reaches you,
+  // or board LATE where seats free up en route.
+  const fromIdx = segment?.from ? stationIndex(routeStations, segment.from) : -1;
+  const earlierBoardings = useMemo(
+    () =>
+      fromIdx < 0
+        ? rankedBoardings
+        : rankedBoardings.filter(
+            (b) => stationIndex(routeStations, b.fromStation) < fromIdx,
+          ),
+    [rankedBoardings, routeStations, fromIdx],
+  );
+  const laterBoardings = useMemo(
+    () =>
+      fromIdx < 0
+        ? []
+        : rankedBoardings.filter(
+            (b) => stationIndex(routeStations, b.fromStation) > fromIdx,
+          ),
+    [rankedBoardings, routeStations, fromIdx],
   );
 
   function teardownSearch() {
@@ -363,8 +419,8 @@ export function App() {
           {segment?.to ? (
             <Section
               step={3}
-              title="Earlier boarding stations"
-              description={`More seats if you board before ${segment.to}? Tap one to switch.`}
+              title="Other boarding stations"
+              description="Book from before you to lock a seat, or board after you where seats free up. Tap one to switch."
               icon={Scale}
             >
               {cross.error ? (
@@ -376,39 +432,46 @@ export function App() {
                 />
               ) : cross.loading ? (
                 <Loading label={crossProgressLabel} />
-              ) : rankedBoardings.length === 0 ? (
+              ) : earlierBoardings.length === 0 && laterBoardings.length === 0 ? (
                 <p className="rounded-lg border border-dashed border-border px-3 py-2.5 text-xs leading-relaxed text-muted-foreground">
-                  No earlier boarding stations to compare for this destination.
+                  No other boarding stations to compare for this destination.
                 </p>
               ) : (
                 <>
-                  <ul className="space-y-2">
-                    {rankedBoardings.map((boarding) => {
-                      const isCurrent = boarding.fromStation === segment?.from;
-                      return (
-                        <li key={boarding.fromStation}>
-                          <button
-                            type="button"
-                            disabled={isCurrent}
-                            onClick={() => handleCrossBoardingSelect(boarding.fromStation)}
-                            className="flex w-full items-center justify-between gap-3 rounded-xl border border-border bg-card px-3 py-2.5 text-left hover:border-rail/40 disabled:cursor-default disabled:opacity-70"
-                          >
-                            <span>
-                              <span className="font-mono text-sm font-bold">{boarding.fromStation}</span>
-                              <span className="text-xs text-muted-foreground"> · {boarding.fromName}</span>
-                              {isCurrent ? (
-                                <span className="text-xs text-muted-foreground"> · your boarding</span>
-                              ) : null}
-                            </span>
-                            <span className="text-sm tabular-nums">
-                              <span className="font-extrabold text-signal-good">{boarding.availableCount}</span>
-                              <span className="text-muted-foreground"> seats</span>
-                            </span>
-                          </button>
-                        </li>
-                      );
-                    })}
-                  </ul>
+                  {earlierBoardings.length > 0 ? (
+                    <div className="space-y-2">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                        Board early — book from here so the seat is held before it reaches you
+                      </p>
+                      <ul className="space-y-2">
+                        {earlierBoardings.map((boarding) => (
+                          <BoardingRow
+                            key={boarding.fromStation}
+                            boarding={boarding}
+                            isCurrent={boarding.fromStation === segment?.from}
+                            onSelect={handleCrossBoardingSelect}
+                          />
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null}
+                  {laterBoardings.length > 0 ? (
+                    <div className="space-y-2">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                        Board late — seats free up after your stop, catch them here
+                      </p>
+                      <ul className="space-y-2">
+                        {laterBoardings.map((boarding) => (
+                          <BoardingRow
+                            key={boarding.fromStation}
+                            boarding={boarding}
+                            isCurrent={false}
+                            onSelect={handleCrossBoardingSelect}
+                          />
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null}
                   {crossWarnings.length > 0 ? (
                     <p className="text-xs text-muted-foreground">
                       {crossWarnings.length} slow coach{crossWarnings.length === 1 ? "" : "es"} skipped in these counts.
